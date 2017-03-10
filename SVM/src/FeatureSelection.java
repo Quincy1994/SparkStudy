@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,16 +21,17 @@ public class FeatureSelection {
 	Map<String,  Double> manfeature;
 	Map<String, Double> womanfeature;
 	Map<String, Double> feature; //记录所有特征的集合
-	String dataSetFilename = "data/dataSet.txt";
+	String dataSetFilename = "data/data.txt";
 	
 	public static void main(String[] args){
 		FeatureSelection fs = new FeatureSelection();
 //		fs.getTag();
 //		fs.getGroup();
-		fs.getWord();
+		fs.getWord(); 
 	}
 	
 	public void getWord(){
+		Set<String> words = new HashSet<String>();
 		manfeature = new HashMap<String, Double>();
 		womanfeature = new HashMap<String, Double>();
 		Map<String, Double> feature = new HashMap<String, Double>(); //记录所有特征的集合
@@ -42,38 +44,40 @@ public class FeatureSelection {
 				String regexTag = "<words>(.*?)</words>";
 				Pattern patternTag = Pattern.compile(regexTag);
 				Matcher matcherTag = patternTag.matcher(line);
-				String groupTag ="";
+				String wordTag ="";
 				if(matcherTag.find()){
-					groupTag = matcherTag.group(1);
+					wordTag = matcherTag.group(1);
 				}
-				List<Term> tokens = HanLP.segment(groupTag);
+				List<Term> token = HanLP.segment(wordTag);
+				Set<String> tokens = new HashSet<String>();
+				for(Term term: token){
+					tokens.add(term.word);
+				}
 				String patternMan = "<sex>男</sex>";
 				if(line.contains(patternMan)){
-					for(Term term: tokens){
-						String tag = term.word;
+					for(String tag: tokens){
 						if(!manfeature.containsKey(tag)){
 							manfeature.put(tag, 0.0);
 						}
 						double countNum = manfeature.get(tag);
 						manfeature.put(tag, countNum+1);
-						feature.put(tag, 1.0);
+						words.add(tag);
 					}
 				}
 				else{
-					for(Term term: tokens){
-						String tag = term.word;
+					for(String tag: tokens){
 						if(!womanfeature.containsKey(tag)){
 							womanfeature.put(tag, 0.0);
 						}
 						double countNum = womanfeature.get(tag);
 						womanfeature.put(tag, countNum+1);
-						feature.put(tag, 1.0);
+						words.add(tag);
 					}
 				}
 			}
 			
 			//计算每个标签的概率
-			Set<String> tagSet = feature.keySet();
+			Set<String> tagSet = words;
 			for(String tag: tagSet){
 				double tagInman = 0;
 				double tagInwoman = 0;
@@ -84,11 +88,15 @@ public class FeatureSelection {
 					tagInwoman = womanfeature.get(tag);
 				}
 				double percent = tagInman / (tagInman + tagInwoman);
+
 				
-				//过滤掉低频标签
-				if(tagInman + tagInwoman > 20 && tag.length() >=2 ){
+//				if(tagInman < 10 && tagInwoman > 5){
+//					feature.put(tag, percent);
+//				}
+				if(tagInman > 5){
 					feature.put(tag, percent);
 				}
+				
 			}
 			
 			//排序
@@ -97,8 +105,8 @@ public class FeatureSelection {
 			for(Map.Entry<String, Double> one: infolds){
 				double value = one.getValue();
 				String key = one.getKey();
-				if(value>=0.7&& value <1){
-					System.out.println(key + "," + value);
+				if(value>= 0.6 && value <= 1){
+					System.out.println(key + "`" + value);
 				}
 			}
 		}catch (Exception e) {
@@ -108,6 +116,8 @@ public class FeatureSelection {
 	}
 	
 	public void getGroup(){
+		
+		Set<String> words = new HashSet<String>();
 		manfeature = new HashMap<String, Double>();
 		womanfeature = new HashMap<String, Double>();
 		Map<String, Double> feature = new HashMap<String, Double>(); //记录所有特征的集合
@@ -134,7 +144,7 @@ public class FeatureSelection {
 						}
 						double countNum = manfeature.get(tag);
 						manfeature.put(tag, countNum+1);
-						feature.put(tag, 1.0);
+						words.add(tag);
 					}
 				}
 				else{
@@ -145,13 +155,13 @@ public class FeatureSelection {
 						}
 						double countNum = womanfeature.get(tag);
 						womanfeature.put(tag, countNum+1);
-						feature.put(tag, 1.0);
+						words.add(tag);
 					}
 				}
 			}
 			
 			//计算每个标签的概率
-			Set<String> tagSet = feature.keySet();
+			Set<String> tagSet = words;
 			for(String tag: tagSet){
 				double tagInman = 0;
 				double tagInwoman = 0;
@@ -164,7 +174,7 @@ public class FeatureSelection {
 				double percent = tagInman / (tagInman + tagInwoman);
 				
 				//过滤掉低频标签
-				if(tagInman + tagInwoman > 20 && tag.length() >=2 ){
+				if(tagInwoman> 5){
 					feature.put(tag, percent);
 				}
 			}
@@ -175,8 +185,8 @@ public class FeatureSelection {
 			for(Map.Entry<String, Double> one: infolds){
 				double value = one.getValue();
 				String key = one.getKey();
-				if(value>=0 && value <0.4){
-					System.out.println(key + "," + value);
+				if(value>=0 && value <= 0.3){
+					System.out.println(key + "`" + value);
 				}
 			}
 		}catch (Exception e) {
@@ -186,6 +196,7 @@ public class FeatureSelection {
 	}
 	
 	public void getTag(){
+		Set<String> words = new HashSet<String>();
 		manfeature = new HashMap<String, Double>();
 		womanfeature = new HashMap<String, Double>();
 		Map<String, Double> feature = new HashMap<String, Double>(); //记录所有特征的集合
@@ -211,7 +222,7 @@ public class FeatureSelection {
 						}
 						double countNum = manfeature.get(tag);
 						manfeature.put(tag, countNum+1);
-						feature.put(tag, 1.0);
+						words.add(tag);
 					}
 				}
 				else{
@@ -221,13 +232,13 @@ public class FeatureSelection {
 						}
 						double countNum = womanfeature.get(tag);
 						womanfeature.put(tag, countNum+1);
-						feature.put(tag, 1.0);
+						words.add(tag);
 					}
 				}
 			}
 			
 			//计算每个标签的概率
-			Set<String> tagSet = feature.keySet();
+			Set<String> tagSet = words;
 			for(String tag: tagSet){
 				double tagInman = 0;
 				double tagInwoman = 0;
@@ -240,7 +251,7 @@ public class FeatureSelection {
 				double percent = tagInman / (tagInman + tagInwoman);
 				
 				//过滤掉低频标签
-				if(tagInman + tagInwoman > 10){
+				if(tagInwoman> 5){
 					feature.put(tag, percent);
 				}
 			}
@@ -251,8 +262,8 @@ public class FeatureSelection {
 			for(Map.Entry<String, Double> one: infolds){
 				double value = one.getValue();
 				String key = one.getKey();
-				if(value>=0.8 && value <1){
-					System.out.println(key + "," + value);
+				if(value>=0 && value <0.4){
+					System.out.println(key + "`" + value);
 				}
 			}
 			

@@ -4,7 +4,9 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -12,10 +14,22 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
+import org.apache.spark.ml.feature.ChiSqSelector;
+import org.apache.spark.ml.feature.StandardScaler;
 import org.apache.spark.mllib.classification.SVMModel;
 import org.apache.spark.mllib.classification.SVMWithSGD;
+import org.apache.spark.mllib.linalg.Vector;
+import org.apache.spark.mllib.linalg.VectorUDT;
 import org.apache.spark.mllib.regression.LabeledPoint;
 import org.apache.spark.mllib.util.MLUtils;
+import org.apache.spark.sql.DataFrame;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.RowFactory;
+import org.apache.spark.sql.SQLContext;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.Metadata;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
 
 import scala.Tuple2;
 
@@ -27,9 +41,11 @@ public class MySVM {
 	List<String> vocabulary;
 	List<String> manVocabulary;
 	List<String> womanVocabulary;
-	String dataSetFilename = "data/dataSet.txt";
+	Map<String, Double> words; 
+	String dataSetFilename = "data/data.txt";
 	String libsvmFilename = "data/libsvmFile.txt";
 	SVMModel model;
+
 	
 	public void trainModel(){
 		try {
@@ -45,27 +61,34 @@ public class MySVM {
 		vocabulary = new ArrayList<String>();
 		manVocabulary = new ArrayList<String>();
 		womanVocabulary = new ArrayList<String>();
+		words = new HashMap<String, Double>();
 		String line;
+		BufferedReader br;
 		
 		//加载男标签
-		String mantagFile = "data/feature/manWord.txt";
-		BufferedReader br = new BufferedReader(new FileReader(new File(mantagFile)));
+		String mantagFile = "data/feature/manTag.txt";
+		br = new BufferedReader(new FileReader(new File(mantagFile)));
 		while((line=br.readLine())!= null){
-			String[] token = line.split(",");
+			System.out.println(line);
+			String[] token = line.split("`");
 			String tag = token[0];
+			double value = Double.parseDouble(token[1]);
 			manVocabulary.add(tag);
 			vocabulary.add(tag);
+			words.put(tag, value);
 		}
 		br.close();
 		
 		//加载女标签
-		String womantagFile = "data/feature/womanWord.txt";
+		String womantagFile = "data/feature/womanTag.txt";
 		br = new BufferedReader(new FileReader(new File(womantagFile)));
 		while((line=br.readLine())!= null){
-			String[] token = line.split(",");
+			String[] token = line.split("`");
 			String tag = token[0];
+			double value = Double.parseDouble(token[1]);
 			womanVocabulary.add(tag);
 			vocabulary.add(tag);
+			words.put(tag, 1-value);
 		}
 		br.close();
 		
@@ -73,10 +96,12 @@ public class MySVM {
 		String manGroupFile = "data/feature/manGroup.txt";
 		br = new BufferedReader(new FileReader(new File(manGroupFile)));
 		while((line=br.readLine())!= null){
-			String[] token = line.split(",");
+			String[] token = line.split("`");
 			String tag = token[0];
+			double value = Double.parseDouble(token[1]);
 			manVocabulary.add(tag);
 			vocabulary.add(tag);
+			words.put(tag, value);
 		}
 		br.close();
 		
@@ -84,32 +109,40 @@ public class MySVM {
 		String womanGroupFile = "data/feature/womanGroup.txt";
 		br = new BufferedReader(new FileReader(new File(womanGroupFile)));
 		while((line=br.readLine())!= null){
-			String[] token = line.split(",");
+			String[] token = line.split("`");
 			String tag = token[0];
+			double value = Double.parseDouble(token[1]);
 			womanVocabulary.add(tag);
 			vocabulary.add(tag);
+			words.put(tag, 1-value);
 		}
 		br.close();
 		
 		//加载男用语习惯
-		String manWordFile = "data/feature/manWord.txt";
+		String manWordFile = "data/feature/wordMan.txt";
 		br = new BufferedReader(new FileReader(new File(manWordFile)));
 		while((line=br.readLine())!= null){
-			String[] token = line.split(",");
+			System.out.println(line);
+			String[] token = line.split("`");
 			String tag = token[0];
+			double value = Double.parseDouble(token[1]);
 			manVocabulary.add(tag);
 			vocabulary.add(tag);
+			words.put(tag, value);
 		}
 		br.close();
 		
-		//加载男用语习惯
-		String womanWordFile = "data/feature/womanWord.txt";
+		//加载女用语习惯
+		String womanWordFile = "data/feature/wordWoman.txt";
 		br = new BufferedReader(new FileReader(new File(womanWordFile)));
 		while((line=br.readLine())!= null){
-			String[] token = line.split(",");
+			System.out.println(line);
+			String[] token = line.split("`");
 			String tag = token[0];
+			double value = Double.parseDouble(token[1]);
 			womanVocabulary.add(tag);
 			vocabulary.add(tag);
+			words.put(tag, 1-value);
 		}
 		br.close();
 	}
@@ -118,6 +151,7 @@ public class MySVM {
 		BufferedReader br = new BufferedReader(new FileReader(new File(this.dataSetFilename)));
 		String line;
 		String libsvmStr = "";
+		List<Term> termList;
 		while((line = br.readLine())!= null){
 			String vectorStr = "";
 			
@@ -135,7 +169,7 @@ public class MySVM {
 				vector[i] = 0.0;
 			}
 			
-			//添加标签属性
+//			//添加标签属性
 			Pattern patternTag = Pattern.compile("<tag>(.*?)</tag>");
 			Matcher matcherTag = patternTag.matcher(line);
 			String tags = null;
@@ -147,6 +181,10 @@ public class MySVM {
 				if(this.vocabulary.contains(tag)){
 					int index = this.vocabulary.indexOf(tag);
 					vector[index] = 1;
+					if(this.words.containsKey(tag)){
+						double value = this.words.get(tag);
+						vector[index] = 1;
+					}
 				}
 			}
 			
@@ -157,12 +195,16 @@ public class MySVM {
 			if(matcherGroup.find()){
 				groups = matcherGroup.group(1);
 			}
-			List<Term> termList = HanLP.segment(groups);
+			termList = HanLP.segment(groups);
 			for(Term term: termList){
 				String tag = term.word;
 				if(this.vocabulary.contains(tag)){
 					int index = this.vocabulary.indexOf(tag);
 					vector[index] = 1;
+					if(this.words.containsKey(tag)){
+						double value = this.words.get(tag);
+						vector[index] = 1;
+					}
 				}
 			}
 			
@@ -179,8 +221,9 @@ public class MySVM {
 				if(this.vocabulary.contains(tag)){
 					int index = this.vocabulary.indexOf(tag);
 					vector[index] = 1;
-					if(this.womanVocabulary.contains(tag)){
-						vector[index] = 2;
+					if(this.words.containsKey(tag)){
+						double value = this.words.get(tag);
+						vector[index] = value;
 					}
 				}
 			}
@@ -188,12 +231,12 @@ public class MySVM {
 			//将属性转变成为字符串
 			for(int i=0; i<this.vocabulary.size(); i++){
 				if(vector[i] > 0){
-					vectorStr += String.valueOf(i+1) + ":1 ";
+					vectorStr += String.valueOf(i+1) + ":" + String.valueOf(vector[i]) + " ";
 				}
 			}
-//			if(vectorStr.length() < 20){
-//				continue;
-//			}
+			if(vectorStr.length() < 40){
+				continue;
+			}
 			libsvmStr += vectorStr.trim() + "\n";
 		}
 		
@@ -204,19 +247,47 @@ public class MySVM {
 	}
 	
 	public void trainSVM(){
+		
 		SparkConf conf = new SparkConf().setAppName("SVM").setMaster("local");
 		conf.set("spark.testing.memory", "2147480000");
 		SparkContext sc = new SparkContext(conf);
-		String path = this.libsvmFilename;
+		String path = libsvmFilename;
 		JavaRDD<LabeledPoint> data = MLUtils.loadLibSVMFile(sc, path).toJavaRDD();
 		
+		JavaRDD<Row> jrdd = data.map(new LabelToRow());
+		StructType schema = new StructType(new StructField[]{
+				new StructField("label", DataTypes.DoubleType, false, Metadata.empty()),
+				new StructField("features",new VectorUDT(), false, Metadata.empty()),
+		});
+		SQLContext jsql = new 	SQLContext(sc);
+		DataFrame df2 =jsql.createDataFrame(jrdd, schema);
+//		
+		StandardScaler  scaler = new StandardScaler().setInputCol("features").setOutputCol("normFeatures").setWithStd(true).setWithMean(false);
+		DataFrame df = scaler.fit(df2).transform(df2);
+		
+//		PCAModel pca = new PCA().setInputCol("features").setOutputCol("pcaFeatures").setK(3000).fit(df);
+////		DCT dct = new DCT().setInputCol("features").setOutputCol("dctFeatures").setInverse(false);
+//		DataFrame results = pca.transform(df).select("label","pcaFeatures");
+//		JavaRDD<Row> rows = results.javaRDD();
+//		JavaRDD<LabeledPoint> data2 = rows.map(new RowToLabel());
+	
+		ChiSqSelector selector = new ChiSqSelector().setNumTopFeatures(5000).setFeaturesCol("normFeatures").setLabelCol("label").setOutputCol("selectedFeatures");
+		DataFrame results = selector.fit(df).transform(df).select("label","selectedFeatures");
+//		PCAModel pca = new PCA().setK(3000).setInputCol("selectedFeatures").setOutputCol("pcaFeatures").fit(results);
+//		DataFrame results2 = pca.transform(results).select("label","pcaFeatures");
+		
+		JavaRDD<Row> rows = results.javaRDD();
+		JavaRDD<LabeledPoint> data2 = rows.map(new RowToLabel());
+		
+		
 		//切分数据
-		JavaRDD<LabeledPoint> training = data.sample(false, 0.6, 11L);
+		JavaRDD<LabeledPoint>[] tmp = data2.randomSplit(new double[]{0.6, 0.4}, 12345);
+		JavaRDD<LabeledPoint> training = tmp[0];
 		training.cache();
-		JavaRDD<LabeledPoint> test = data.subtract(training);
+		JavaRDD<LabeledPoint> test = tmp[1];
 		
 		//构建模型
-		int numIterations = 100;
+		int numIterations = 200;
 		this.model = SVMWithSGD.train(training.rdd(), numIterations);
 		model.clearThreshold();
 		
@@ -227,9 +298,15 @@ public class MySVM {
 		double accuracyWoman = 1.0 *scoreAndLabels.filter(new CountWoman()).filter(new Accuracy()).count() / scoreAndLabels.filter(new CountWoman()).count();
 		
 		List<Tuple2<Double,Double>> result = scoreAndLabels.collect();
-		for(Tuple2<Double, Double> one: result){
-			System.out.println("predict: " + one._1() + " label: " + one._2());
-		}
+//		for(Tuple2<Double, Double> one: result){
+//			if(one._1() >= 0 && one._2() == 0){
+//				System.out.println("predict: " + one._1() + " label: " + one._2());
+//			}
+//			else if(one._1() < 0 && one._2() == 1){
+//				System.out.println("predict: " + one._1() + " label: " + one._2());
+//			}
+//		}
+//		
 		System.out.println("accuracyMan:" + accuracyMan);
 		System.out.println("accuracyWoman:" + accuracyWoman);
 		System.out.println("accuracy:" + accuracy);
@@ -265,22 +342,41 @@ public class MySVM {
 	static class Accuracy implements Function<Tuple2<Double, Double>, Boolean>{
 		
 		public Boolean call(Tuple2<Double, Double> p){
-			if(p._1() >0 && p._2() == 1.0){
+			if(p._1() > 0&& p._2() == 1.0){
 				return true;
 			}
-			else if(p._1() <0 && p._2() == 0.0){
+			else if(p._1() <= 0  && p._2() == 0.0){
 				return true;
 			}
 			else return false;
 		}
 	}
 	
+	static class LabelToRow implements Function<LabeledPoint ,Row>{
+
+		public Row call(LabeledPoint p) throws Exception {
+			// TODO Auto-generated method stub
+			double label = p.label();
+			Vector vector =p.features();
+			return RowFactory.create(label, vector);
+		}
+		
+	}
 	
-	
+	static class RowToLabel implements Function<Row ,LabeledPoint>{
+
+		public LabeledPoint call(Row r) throws Exception {
+			// TODO Auto-generated method stub
+			Vector features = r.getAs(1);
+			double label = r.getDouble(0);
+			return new LabeledPoint(label, features);
+		}
+		
+	}
 	public static void main(String[] args) throws Exception{
 		MySVM svm = new MySVM();
-		svm.loadVocabulary();
-		svm.writeLibsvmFile();
+//		svm.loadVocabulary();
+//		svm.writeLibsvmFile();
 		svm.trainSVM();
 	}
 }
